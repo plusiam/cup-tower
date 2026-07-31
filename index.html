@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>종이컵 탑 쌓기 — 교사 진행 도구</title>
+<meta name="description" content="경쟁을 협력으로 03. 종이컵 탑 쌓기 놀이 진행용 전자칠판 도구">
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+/* ============================================================
+   종이컵 탑 쌓기 — 교사 진행 도구
+   룰루랄라 한기쌤 (여한기 / GitHub: plusiam) · CC BY-NC 4.0
+   단일 파일 구성. 상태는 메모리에만 두고 새로고침 시 초기화한다.
+   ============================================================ */
+
+/* ---------- 디자인 토큰 ---------- */
+:root{
+  --ink:      #12213A;   /* 본문 글자 */
+  --ink-soft: #63728A;   /* 보조 글자 */
+  --blue:     #1D4ED8;   /* 강조 (슬라이드 파랑과 맞춤) */
+  --blue-dim: #4B7BF5;
+  --blue-bg:  #EAF0FE;
+  --cup:      #F3C48E;   /* 종이컵 */
+  --cup-edge: #D9A25F;
+  --bg:       #F4F6FA;
+  --card:     #FFFFFF;
+  --line:     #DDE3ED;
+  --warn:     #E0654B;
+
+  --r: 16px;             /* 기본 모서리 */
+  --shadow: 0 2px 4px rgba(18,33,58,.05), 0 12px 28px rgba(18,33,58,.07);
+  --sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+          "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{ height:100%; }
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;              /* 전자칠판 기준: 한 화면 안에서 끝낸다 */
+  letter-spacing:-.01em;
+}
+button{ font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+  outline:3px solid var(--blue); outline-offset:3px; border-radius:6px;
+}
+input{ font-family:inherit; }
+
+/* ---------- 화면 전환 ---------- */
+.screen{
+  position:fixed; inset:0;
+  display:none;
+  flex-direction:column;
+  padding:clamp(20px,3.2vh,40px) clamp(20px,3.5vw,64px);
+}
+.screen.on{ display:flex; animation:fade .35s ease both; }
+@keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;} }
+
+/* ---------- 공통 부품 ---------- */
+.eyebrow{
+  font-size:clamp(13px,1.5vh,17px); font-weight:700; color:var(--blue);
+  letter-spacing:.06em;
+}
+h1{ font-size:clamp(34px,6.4vh,64px); font-weight:800; line-height:1.1; letter-spacing:-.035em; }
+h2{ font-size:clamp(22px,3.4vh,34px); font-weight:800; letter-spacing:-.03em; }
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:.72em 1.5em; border-radius:999px;
+  font-size:clamp(15px,2vh,21px); font-weight:700;
+  background:var(--card); color:var(--ink);
+  border:2px solid var(--line);
+  transition:transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.btn:hover{ border-color:var(--blue-dim); transform:translateY(-2px); }
+.btn:active{ transform:translateY(0); }
+.btn.primary{ background:var(--blue); color:#fff; border-color:var(--blue); }
+.btn.primary:hover{ background:#1740b8; border-color:#1740b8; }
+.btn.ghost{ background:transparent; border-color:transparent; color:var(--ink-soft); }
+.btn.ghost:hover{ color:var(--ink); background:rgba(18,33,58,.05); }
+.btn:disabled{ opacity:.35; cursor:not-allowed; transform:none; }
+
+.topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:clamp(12px,2vh,24px); }
+.footer-note{ margin-top:auto; padding-top:14px; font-size:clamp(11px,1.4vh,14px); color:var(--ink-soft); }
+.kbd{
+  display:inline-block; padding:2px 8px; border-radius:6px;
+  background:rgba(18,33,58,.07); font-size:.86em; font-weight:700;
+}
+
+/* ============================================================
+   ① 미션 소개
+   ============================================================ */
+#s-mission .body{ display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(24px,3vw,56px); flex:1; align-items:center; }
+
+.prep{
+  display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin:clamp(14px,2.4vh,26px) 0 clamp(18px,3vh,30px);
+  font-size:clamp(15px,2vh,21px); font-weight:600; color:var(--ink-soft);
+}
+.prep b{ color:var(--ink); font-weight:800; }
+.prep .dot{ width:4px; height:4px; border-radius:50%; background:var(--line); }
+
+/* 규칙: 클릭할 때마다 한 줄씩 열린다 */
+.rules{ display:flex; flex-direction:column; gap:clamp(10px,1.6vh,18px); }
+.rule{
+  display:flex; gap:clamp(14px,1.6vw,22px); align-items:flex-start;
+  padding:clamp(12px,1.8vh,20px) clamp(14px,1.6vw,24px);
+  background:var(--card); border-radius:var(--r); border:1px solid var(--line);
+  opacity:.28; filter:blur(1.5px);
+  transition:opacity .4s ease, filter .4s ease, transform .4s ease, box-shadow .4s ease;
+  transform:translateY(6px);
+}
+.rule.shown{ opacity:1; filter:none; transform:none; box-shadow:var(--shadow); }
+.rule .num{
+  flex:none; width:clamp(30px,4vh,40px); height:clamp(30px,4vh,40px);
+  border-radius:10px; background:var(--blue-bg); color:var(--blue);
+  display:grid; place-items:center; font-weight:800; font-size:clamp(15px,2.1vh,20px);
+}
+.rule p{ font-size:clamp(17px,2.5vh,26px); font-weight:600; line-height:1.45; }
+
+/* 마지막 강조 문구 */
+.punch{
+  margin-top:clamp(14px,2.4vh,26px);
+  padding:clamp(14px,2vh,22px) clamp(16px,1.8vw,26px);
+  border:2.5px solid var(--blue); border-radius:var(--r);
+  background:var(--blue-bg);
+  font-size:clamp(16px,2.4vh,25px); font-weight:800; color:var(--blue); line-height:1.4;
+  opacity:0; transform:scale(.97);
+  transition:opacity .45s ease, transform .45s ease;
+}
+.punch.shown{ opacity:1; transform:none; }
+
+/* 오른쪽 도해 */
+.diagram{
+  background:var(--card); border:1px solid var(--line); border-radius:20px;
+  padding:clamp(16px,2.4vh,28px);
+  box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:10px; height:100%;
+  max-height:78vh;
+}
+.diagram .cap{ text-align:center; font-weight:800; color:var(--blue); font-size:clamp(14px,1.9vh,20px); }
+.diagram svg{ width:100%; height:100%; flex:1; min-height:0; }
+
+/* 실이 당겨지는 미세한 호흡 — 4명이 함께 잡고 있다는 신호 */
+@keyframes breathe{ 0%,100%{ r:26; } 50%{ r:32; } }
+.rubber{ animation:breathe 3.4s ease-in-out infinite; }
+
+/* ============================================================
+   ② 모둠 설정
+   ============================================================ */
+#s-setup .body{ flex:1; display:flex; flex-direction:column; min-height:0; }
+
+.count-row{ display:flex; align-items:center; gap:clamp(10px,1.4vw,18px); margin:clamp(14px,2.2vh,24px) 0; flex-wrap:wrap; }
+.count-row .label{ font-size:clamp(15px,2vh,20px); font-weight:700; color:var(--ink-soft); }
+.stepper{ display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:5px; }
+.stepper button{ width:clamp(36px,4.6vh,46px); height:clamp(36px,4.6vh,46px); border-radius:50%; font-size:clamp(19px,2.6vh,26px); font-weight:800; color:var(--blue); }
+.stepper button:hover{ background:var(--blue-bg); }
+.stepper .val{ min-width:clamp(46px,6vh,64px); text-align:center; font-size:clamp(21px,3vh,30px); font-weight:800; font-variant-numeric:tabular-nums; }
+
+.team-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:clamp(10px,1.5vh,16px);
+  overflow-y:auto; padding:4px 4px 8px; flex:1; min-height:0;
+}
+.team-row{
+  display:flex; align-items:center; gap:12px;
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:clamp(9px,1.3vh,14px) clamp(11px,1vw,16px);
+}
+.badge{
+  flex:none; width:clamp(40px,5.2vh,52px); height:clamp(40px,5.2vh,52px); border-radius:13px;
+  display:grid; place-items:center; font-size:clamp(20px,2.8vh,28px);
+  border:2px solid transparent; transition:transform .12s ease;
+}
+.badge:hover{ transform:scale(1.08) rotate(-4deg); }
+.team-row input{
+  flex:1; min-width:0; border:none; background:transparent;
+  font-size:clamp(16px,2.2vh,22px); font-weight:700; color:var(--ink);
+  padding:6px 2px; border-bottom:2px solid transparent;
+}
+.team-row input:focus{ outline:none; border-bottom-color:var(--blue); }
+.team-row input::placeholder{ color:#B3BDCC; font-weight:600; }
+
+.hint{ font-size:clamp(13px,1.7vh,17px); color:var(--ink-soft); line-height:1.5; }
+.setup-foot{ display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:clamp(12px,2vh,20px); flex-wrap:wrap; }
+
+/* ============================================================
+   ③ 진행 (타이머 + 모둠)
+   ============================================================ */
+#s-play .stage{ flex:1; display:flex; flex-direction:column; min-height:0; gap:clamp(10px,1.6vh,18px); }
+
+.mode-tabs{ display:flex; gap:6px; background:rgba(18,33,58,.06); padding:5px; border-radius:999px; }
+.mode-tabs button{ padding:.5em 1.2em; border-radius:999px; font-weight:700; font-size:clamp(13px,1.8vh,18px); color:var(--ink-soft); }
+.mode-tabs button.on{ background:var(--card); color:var(--blue); box-shadow:0 1px 3px rgba(18,33,58,.12); }
+
+.clock-bar{ display:flex; align-items:center; justify-content:center; gap:clamp(14px,2vw,30px); flex-wrap:wrap; }
+.clock{
+  font-size:clamp(56px,13.5vh,150px); font-weight:800; line-height:.92;
+  font-variant-numeric:tabular-nums; letter-spacing:-.045em;
+  transition:color .3s ease;
+}
+.clock.low{ color:var(--warn); }
+.clock.done{ color:var(--warn); animation:shake .5s ease 3; }
+@keyframes shake{ 0%,100%{transform:none;} 25%{transform:translateX(-7px);} 75%{transform:translateX(7px);} }
+.clock-ctrl{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+.practice-note{
+  font-size:clamp(14px,2vh,19px); font-weight:700; color:var(--blue);
+  background:var(--blue-bg); padding:.6em 1.2em; border-radius:999px;
+}
+
+/* 모둠 카드 */
+.board{
+  flex:1; min-height:0;
+  display:grid; gap:clamp(10px,1.4vw,18px);
+  grid-auto-rows:1fr;
+}
+.tcard{
+  background:var(--card); border:1px solid var(--line); border-radius:18px;
+  padding:clamp(10px,1.6vh,18px);
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  min-height:0; box-shadow:var(--shadow);
+  transition:border-color .2s ease, transform .2s ease;
+}
+.tcard.lead{ border-color:var(--blue); border-width:2px; }
+.tcard .name{
+  display:flex; align-items:center; gap:8px; width:100%; justify-content:center;
+  font-size:clamp(15px,2.1vh,22px); font-weight:800; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tcard .name .chip{ width:1.5em; height:1.5em; border-radius:8px; display:grid; place-items:center; font-size:.9em; flex:none; }
+
+/* 컵이 실제로 쌓이는 자리 — 이 도구의 얼굴 */
+.tower{ flex:1; width:100%; min-height:0; display:flex; flex-direction:column-reverse; align-items:center; justify-content:flex-start; gap:2px; padding:4px 0; }
+.cup{
+  width:min(64%,86px); flex:none;
+  background:linear-gradient(180deg,#F8D6AC,var(--cup));
+  border:1.5px solid var(--cup-edge);
+  border-radius:3px 3px 7px 7px;
+  clip-path:polygon(3% 0, 97% 0, 89% 100%, 11% 100%);
+  animation:pop .28s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes pop{ from{ transform:translateY(-14px) scale(.8); opacity:0; } to{ transform:none; opacity:1; } }
+
+.counter{ display:flex; align-items:center; gap:clamp(6px,.8vw,12px); }
+.counter .num{ font-size:clamp(26px,4.4vh,46px); font-weight:800; font-variant-numeric:tabular-nums; min-width:1.6em; text-align:center; }
+.counter .num small{ font-size:.4em; font-weight:700; color:var(--ink-soft); margin-left:2px; }
+.pm{
+  width:clamp(34px,4.6vh,46px); height:clamp(34px,4.6vh,46px); border-radius:50%;
+  background:var(--blue-bg); color:var(--blue); font-size:clamp(19px,2.6vh,26px); font-weight:800;
+  display:grid; place-items:center; transition:transform .1s ease;
+}
+.pm:hover{ background:#DCE6FD; }
+.pm:active{ transform:scale(.9); }
+.pm.minus{ background:rgba(18,33,58,.06); color:var(--ink-soft); }
+
+/* 무너짐: 점수가 아니라 기록일 뿐이라는 걸 크기로 말한다 */
+.fall{
+  display:flex; align-items:center; gap:6px;
+  font-size:clamp(11px,1.5vh,14px); font-weight:700; color:var(--ink-soft);
+  padding:4px 10px; border-radius:999px; background:rgba(18,33,58,.045);
+}
+.fall:hover{ background:rgba(224,101,75,.1); color:var(--warn); }
+
+/* 신호 언어 — 말이 서툰 아이도 쓸 수 있는 최소 어휘 */
+.signals{ display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; }
+.signals .sig{
+  padding:.45em 1.1em; border-radius:999px; border:2px solid var(--line);
+  font-size:clamp(13px,1.8vh,18px); font-weight:700; color:var(--ink-soft); background:var(--card);
+}
+.signals .sig:hover{ border-color:var(--blue); color:var(--blue); }
+
+#shout{
+  position:fixed; inset:0; z-index:60; display:none;
+  place-items:center; background:rgba(18,33,58,.93); color:#fff;
+  font-size:clamp(52px,17vw,230px); font-weight:800; letter-spacing:-.04em; text-align:center;
+  padding:5vw; cursor:pointer;
+}
+#shout.on{ display:grid; animation:fade .18s ease both; }
+
+/* ============================================================
+   ④ 결과 — 순위에서 학급 합계로 뒤집기
+   ============================================================ */
+#s-result .body{ flex:1; display:flex; flex-direction:column; min-height:0; gap:clamp(12px,2vh,22px); }
+.rank-list{ display:flex; flex-direction:column; gap:clamp(8px,1.2vh,14px); overflow-y:auto; flex:1; min-height:0; padding-right:4px; }
+.rank{
+  display:flex; align-items:center; gap:clamp(12px,1.4vw,20px);
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:clamp(10px,1.6vh,18px) clamp(14px,1.6vw,24px);
+  animation:slide .4s ease both;
+}
+@keyframes slide{ from{opacity:0; transform:translateX(-16px);} to{opacity:1; transform:none;} }
+.rank .pos{ font-size:clamp(18px,2.6vh,28px); font-weight:800; color:var(--ink-soft); min-width:1.6em; }
+.rank .chip{ width:clamp(34px,4.4vh,44px); height:clamp(34px,4.4vh,44px); border-radius:11px; display:grid; place-items:center; font-size:clamp(17px,2.4vh,24px); flex:none; }
+.rank .who{ flex:1; font-size:clamp(17px,2.5vh,26px); font-weight:800; }
+.rank .bar{ flex:2; height:clamp(12px,1.7vh,18px); background:var(--blue-bg); border-radius:999px; overflow:hidden; }
+.rank .bar i{ display:block; height:100%; background:var(--blue-dim); border-radius:999px; width:0; transition:width .7s cubic-bezier(.22,1,.36,1); }
+.rank .score{ font-size:clamp(18px,2.7vh,30px); font-weight:800; font-variant-numeric:tabular-nums; min-width:2.6em; text-align:right; }
+.rank .score small{ font-size:.5em; color:var(--ink-soft); margin-left:2px; }
+
+/* 합계 화면: 모둠 컵이 하나의 탑으로 합쳐진다 */
+#s-total .body{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:clamp(10px,1.8vh,22px); min-height:0; }
+.pyramid{ display:flex; flex-direction:column; align-items:center; gap:2px; flex:1; min-height:0; justify-content:flex-end; padding:8px 0; width:100%; }
+.prow{ display:flex; gap:2px; justify-content:center; }
+.prow .cup{ width:auto; }
+.total-num{ font-size:clamp(60px,15vh,170px); font-weight:800; line-height:.9; letter-spacing:-.05em; color:var(--blue); font-variant-numeric:tabular-nums; }
+.total-num small{ font-size:.26em; color:var(--ink); margin-left:.2em; letter-spacing:-.02em; }
+.total-cap{ font-size:clamp(17px,2.6vh,28px); font-weight:700; color:var(--ink-soft); text-align:center; line-height:1.5; }
+
+/* ---------- 반응형: 노트북·태블릿 ---------- */
+@media (max-width:900px){
+  #s-mission .body{ grid-template-columns:1fr; align-content:start; overflow-y:auto; }
+  .diagram{ max-height:34vh; }
+  body{ overflow:auto; }
+  .screen{ position:static; min-height:100vh; }
+  .screen.on{ display:flex; }
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     ① 미션 소개
+     ============================================================ -->
+<section class="screen on" id="s-mission">
+  <div class="topbar">
+    <div class="eyebrow">경쟁을 협력으로 03</div>
+    <button class="btn ghost" data-go="setup">모둠 정하기 →</button>
+  </div>
+
+  <div class="body">
+    <div>
+      <h1>종이컵 탑 쌓기</h1>
+      <div class="prep">
+        <b>4명 1모둠</b><span class="dot"></span><b>종이컵 20개</b><span class="dot"></span>
+        <b>고무줄 1개</b><span class="dot"></span><b>실 4가닥</b>
+      </div>
+
+      <div class="rules" id="rules">
+        <div class="rule"><span class="num">1</span><p>고무줄 하나에 실 네 가닥을 묶고, 각자 실을 하나씩 나눠 잡습니다.</p></div>
+        <div class="rule"><span class="num">2</span><p>손으로 컵을 만지지 않고, 실을 당겨 고무줄을 벌렸다 오므려 컵을 옮깁니다.</p></div>
+        <div class="rule"><span class="num">3</span><p>제한 시간 안에 가장 높이 쌓으면 성공! 무너지면 함께 다시 시작합니다.</p></div>
+      </div>
+
+      <div class="punch" id="punch">네 명이 동시에 힘을 맞춰야만 컵이 잡힙니다. 혼자서는 세울 수 없어요.</div>
+
+      <div style="margin-top:clamp(16px,2.6vh,28px); display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn primary" id="btn-next-rule">다음 규칙 보기</button>
+        <button class="btn" data-go="setup">모둠 정하기</button>
+      </div>
+    </div>
+
+    <!-- 도해: 실 4가닥 + 고무줄. 고무줄이 천천히 벌어졌다 오므라든다 -->
+    <div class="diagram">
+      <div class="cap">네 줄을 함께 조절해 컵을 옮겨요</div>
+      <svg viewBox="0 0 400 340" xmlns="http://www.w3.org/2000/svg" role="img"
+           aria-label="네 사람이 실을 하나씩 잡고 가운데 고무줄에 연결되어 컵을 옮기는 그림">
+        <g stroke="var(--blue-dim)" stroke-width="2.5" stroke-linecap="round">
+          <line x1="52" y1="52" x2="200" y2="128"/>
+          <line x1="348" y1="52" x2="200" y2="128"/>
+          <line x1="52" y1="268" x2="200" y2="128"/>
+          <line x1="348" y1="268" x2="200" y2="128"/>
+        </g>
+        <g fill="var(--blue)">
+          <circle cx="52"  cy="52"  r="17"/><circle cx="348" cy="52"  r="17"/>
+          <circle cx="52"  cy="268" r="17"/><circle cx="348" cy="268" r="17"/>
+        </g>
+        <g fill="#fff" font-family="inherit" font-size="17" font-weight="800" text-anchor="middle" dominant-baseline="central">
+          <text x="52" y="53">1</text><text x="348" y="53">2</text>
+          <text x="52" y="269">3</text><text x="348" y="269">4</text>
+        </g>
+        <ellipse class="rubber" cx="200" cy="128" rx="42" ry="17" fill="none" stroke="var(--blue)" stroke-width="3.5"/>
+        <g fill="var(--cup)" stroke="var(--cup-edge)" stroke-width="1.5">
+          <rect x="180" y="152" width="40" height="30" rx="5"/>
+          <rect x="180" y="186" width="40" height="30" rx="5"/>
+          <rect x="156" y="220" width="40" height="30" rx="5"/>
+          <rect x="204" y="220" width="40" height="30" rx="5"/>
+          <rect x="132" y="254" width="40" height="30" rx="5"/>
+          <rect x="180" y="254" width="40" height="30" rx="5"/>
+          <rect x="228" y="254" width="40" height="30" rx="5"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="footer-note">놀이를 통한 이주배경학생의 또래 어울림 지원 · <span class="kbd">스페이스</span> 또는 클릭으로 규칙을 하나씩 엽니다</div>
+</section>
+
+<!-- ============================================================
+     ② 모둠 설정
+     ============================================================ -->
+<section class="screen" id="s-setup">
+  <div class="topbar">
+    <div>
+      <div class="eyebrow">준비 단계</div>
+      <h2 style="margin-top:4px;">모둠을 정합니다</h2>
+    </div>
+    <button class="btn ghost" data-go="mission">← 미션 다시 보기</button>
+  </div>
+
+  <div class="body">
+    <div class="count-row">
+      <span class="label">모둠 수</span>
+      <div class="stepper">
+        <button id="t-minus" aria-label="모둠 수 줄이기">−</button>
+        <span class="val" id="t-count">4</span>
+        <button id="t-plus" aria-label="모둠 수 늘리기">+</button>
+      </div>
+      <span class="hint">한 모둠은 4명입니다 · 종이컵은 모둠당 20개</span>
+    </div>
+
+    <div class="team-grid" id="team-grid"></div>
+
+    <div class="setup-foot">
+      <p class="hint">
+        이름을 비워 두면 <b>1모둠, 2모둠…</b>으로 자동으로 채워집니다.<br>
+        색 배지를 눌러 그림을 바꿔 보세요. 글자를 못 읽어도 자기 자리를 찾을 수 있습니다.
+      </p>
+      <button class="btn primary" id="btn-start" style="font-size:clamp(17px,2.4vh,24px); padding:.8em 2em;">놀이 시작하기 →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     ③ 진행
+     ============================================================ -->
+<section class="screen" id="s-play">
+  <div class="topbar">
+    <div class="mode-tabs" id="mode-tabs">
+      <button data-mode="practice">연습</button>
+      <button data-mode="real" class="on">본 경기</button>
+    </div>
+    <div class="signals" id="signals">
+      <button class="sig" data-say="하나, 둘, 셋">하나, 둘, 셋</button>
+      <button class="sig" data-say="천천히">천천히</button>
+      <button class="sig" data-say="멈춰">멈춰</button>
+    </div>
+    <button class="btn ghost" data-go="setup">← 모둠 다시 정하기</button>
+  </div>
+
+  <div class="stage">
+    <div class="clock-bar">
+      <button class="btn" id="t-sub">−30초</button>
+      <div class="clock" id="clock">03:00</div>
+      <button class="btn" id="t-add">+30초</button>
+      <div class="clock-ctrl">
+        <button class="btn primary" id="btn-play" style="min-width:8em;">시작</button>
+        <button class="btn" id="btn-reset">되돌리기</button>
+        <button class="btn" id="btn-finish">결과 보기</button>
+      </div>
+    </div>
+
+    <div class="practice-note" id="practice-note" style="display:none; align-self:center;">
+      연습 모드 — 컵 하나를 잡고 내려놓는 것부터. 시간은 재지 않습니다.
+    </div>
+
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="footer-note">
+    <span class="kbd">스페이스</span> 시작·멈춤 &nbsp; <span class="kbd">R</span> 되돌리기 &nbsp;
+    컵 그림을 눌러도 한 층 올라갑니다
+  </div>
+</section>
+
+<!-- ============================================================
+     ④ 결과 (모둠별)
+     ============================================================ -->
+<section class="screen" id="s-result">
+  <div class="topbar">
+    <div>
+      <div class="eyebrow">결과</div>
+      <h2 style="margin-top:4px;">모둠이 쌓은 컵</h2>
+    </div>
+    <button class="btn ghost" data-go="play">← 진행 화면으로</button>
+  </div>
+
+  <div class="body">
+    <div class="rank-list" id="rank-list"></div>
+    <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
+      <button class="btn primary" id="btn-total" style="font-size:clamp(17px,2.4vh,24px); padding:.8em 2em;">
+        우리 반이 함께 쌓은 컵 보기 →
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     ⑤ 학급 합계 — 순위가 사라지는 자리
+     ============================================================ -->
+<section class="screen" id="s-total">
+  <div class="topbar">
+    <div class="eyebrow">경쟁을 협력으로</div>
+    <button class="btn ghost" data-go="result">← 모둠별 결과</button>
+  </div>
+
+  <div class="body">
+    <div class="pyramid" id="pyramid"></div>
+    <div class="total-num" id="total-num">0<small>층</small></div>
+    <p class="total-cap" id="total-cap">순위표를 지우고 나면 남는 숫자입니다.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+      <button class="btn" data-go="play">한 판 더 하기</button>
+      <button class="btn ghost" id="btn-restart">처음으로</button>
+    </div>
+  </div>
+</section>
+
+<!-- 신호 언어 큰 화면 -->
+<div id="shout" role="status" aria-live="polite"></div>
+
+<script>
+/* ============================================================
+   상태
+   ============================================================ */
+const PALETTE = [ /* 배지 색: 모둠을 색으로 구분한다 */
+  '#FFE1B8','#D6E7FF','#FFD5D5','#D9F2DC','#EADCFB','#FFEEB8','#D3F0F5','#FBDCEC'
+];
+const EMOJI = ['🦁','🐢','🦊','🐧','🐝','🐬','🦉','🐙','🦋','🐸','🦄','🐳'];
+
+const state = {
+  teamCount : 4,
+  teams     : [],        // {name, emoji, color, cups, falls}
+  mode      : 'real',    // practice | real
+  total     : 180,       // 설정된 제한 시간(초)
+  left      : 180,       // 남은 시간
+  running   : false,
+  tick      : null
+};
+
+/* 모둠 배열을 개수에 맞춰 만들되 이미 입력한 값은 지키지 않는다(설정 화면에서만 호출) */
+function buildTeams(){
+  const next = [];
+  for(let i=0; i<state.teamCount; i++){
+    const old = state.teams[i];
+    next.push(old || {
+      name : '',
+      emoji: EMOJI[i % EMOJI.length],
+      color: PALETTE[i % PALETTE.length],
+      cups : 0,
+      falls: 0
+    });
+  }
+  state.teams = next;
+}
+const teamName = (t,i) => (t.name.trim() || `${i+1}모둠`);
+
+/* ============================================================
+   화면 전환
+   ============================================================ */
+function go(id){
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  document.getElementById('s-'+id).classList.add('on');
+  if(id === 'setup')  renderSetup();
+  if(id === 'play')   renderBoard();
+  if(id === 'result') renderResult();
+  if(id === 'total')  renderTotal();
+}
+document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+
+/* ============================================================
+   ① 미션 — 규칙 한 줄씩 열기
+   ============================================================ */
+let ruleStep = 0;
+const ruleEls  = [...document.querySelectorAll('#rules .rule')];
+const punchEl  = document.getElementById('punch');
+const nextRule = document.getElementById('btn-next-rule');
+
+function openNextRule(){
+  if(ruleStep < ruleEls.length){
+    ruleEls[ruleStep].classList.add('shown');
+    ruleStep++;
+    if(ruleStep === ruleEls.length) nextRule.textContent = '핵심 한 줄 보기';
+  }else if(!punchEl.classList.contains('shown')){
+    punchEl.classList.add('shown');
+    nextRule.textContent = '모둠 정하기 →';
+    nextRule.onclick = () => go('setup');
+  }
+}
+nextRule.onclick = openNextRule;
+
+/* ============================================================
+   ② 모둠 설정
+   ============================================================ */
+const grid = document.getElementById('team-grid');
+
+function renderSetup(){
+  buildTeams();
+  document.getElementById('t-count').textContent = state.teamCount;
+  grid.innerHTML = '';
+
+  state.teams.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'team-row';
+
+    // 배지: 누를 때마다 그림이 바뀐다
+    const badge = document.createElement('button');
+    badge.className = 'badge';
+    badge.style.background = t.color;
+    badge.textContent = t.emoji;
+    badge.title = '눌러서 그림 바꾸기';
+    badge.onclick = () => {
+      const n = (EMOJI.indexOf(t.emoji) + 1) % EMOJI.length;
+      t.emoji = EMOJI[n];
+      t.color = PALETTE[n % PALETTE.length];
+      badge.textContent = t.emoji;
+      badge.style.background = t.color;
+    };
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = t.name;
+    input.maxLength = 12;
+    input.placeholder = `${i+1}모둠`;
+    input.oninput = () => { t.name = input.value; };
+
+    row.append(badge, input);
+    grid.appendChild(row);
+  });
+}
+
+document.getElementById('t-plus').onclick  = () => { if(state.teamCount < 12){ state.teamCount++; renderSetup(); } };
+document.getElementById('t-minus').onclick = () => { if(state.teamCount > 2){ state.teamCount--; state.teams.pop(); renderSetup(); } };
+document.getElementById('btn-start').onclick = () => { resetScores(); go('play'); };
+
+/* ============================================================
+   ③ 진행 — 모둠판
+   ============================================================ */
+const board = document.getElementById('board');
+
+function renderBoard(){
+  // 모둠 수에 맞춰 열 수를 정한다 (전자칠판 가로 기준)
+  const n = state.teams.length;
+  const cols = n <= 3 ? n : n <= 8 ? Math.ceil(n/2) : Math.ceil(n/2);
+  board.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  board.innerHTML = '';
+
+  const max = Math.max(...state.teams.map(t => t.cups), 1);
+
+  state.teams.forEach((t, i) => {
+    const card = document.createElement('div');
+    card.className = 'tcard' + (t.cups === max && t.cups > 0 ? ' lead' : '');
+
+    card.innerHTML = `
+      <div class="name">
+        <span class="chip" style="background:${t.color}">${t.emoji}</span>
+        <span>${teamName(t,i)}</span>
+      </div>
+      <div class="tower" title="눌러서 한 층 올리기"></div>
+      <div class="counter">
+        <button class="pm minus" aria-label="한 층 내리기">−</button>
+        <span class="num">${t.cups}<small>층</small></span>
+        <button class="pm plus" aria-label="한 층 올리기">+</button>
+      </div>
+      <button class="fall">무너짐 ${t.falls}</button>
+    `;
+
+    // 컵 그리기 — 칸 높이에 맞춰 컵 두께를 줄인다
+    const tower = card.querySelector('.tower');
+    drawTower(tower, t.cups);
+    tower.onclick = () => { t.cups++; renderBoard(); };
+
+    card.querySelector('.plus').onclick  = () => { t.cups++; renderBoard(); };
+    card.querySelector('.minus').onclick = () => { if(t.cups > 0){ t.cups--; renderBoard(); } };
+    card.querySelector('.fall').onclick  = () => { t.falls++; renderBoard(); };
+
+    board.appendChild(card);
+  });
+}
+
+/* 컵 탑 그리기: 개수가 많아지면 컵을 얇게 만들어 칸 안에 담는다 */
+function drawTower(el, count){
+  el.innerHTML = '';
+  if(count === 0) return;
+  const h = Math.max(5, Math.min(26, 260 / count));
+  for(let i=0; i<count; i++){
+    const c = document.createElement('div');
+    c.className = 'cup';
+    c.style.height = h + 'px';
+    if(i !== count-1) c.style.animation = 'none';   // 마지막에 올린 컵만 튀어오른다
+    el.appendChild(c);
+  }
+}
+
+function resetScores(){
+  state.teams.forEach(t => { t.cups = 0; t.falls = 0; });
+}
+
+/* ---------- 모드 ---------- */
+document.querySelectorAll('#mode-tabs button').forEach(b => {
+  b.onclick = () => {
+    state.mode = b.dataset.mode;
+    document.querySelectorAll('#mode-tabs button').forEach(x => x.classList.toggle('on', x === b));
+    document.getElementById('practice-note').style.display = state.mode === 'practice' ? 'block' : 'none';
+    pause();
+    if(state.mode === 'practice') resetScores();
+    resetClock();
+    renderBoard();
+  };
+});
+
+/* ---------- 타이머 ---------- */
+const clockEl = document.getElementById('clock');
+const playBtn = document.getElementById('btn-play');
+
+function fmt(s){
+  s = Math.max(0, s);
+  return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+}
+function paintClock(){
+  clockEl.textContent = fmt(state.left);
+  clockEl.classList.toggle('low',  state.left <= 30 && state.left > 0);
+  clockEl.classList.toggle('done', state.left === 0);
+}
+function start(){
+  if(state.mode === 'practice') return;   // 연습 모드는 시간을 재지 않는다
+  if(state.left <= 0) return;
+  state.running = true;
+  playBtn.textContent = '멈춤';
+  state.tick = setInterval(() => {
+    state.left--;
+    paintClock();
+    if(state.left <= 10 && state.left > 0) beep(660, .07);
+    if(state.left <= 0){ pause(); beep(440, .5); }
+  }, 1000);
+}
+function pause(){
+  state.running = false;
+  playBtn.textContent = '시작';
+  clearInterval(state.tick);
+}
+function toggle(){ state.running ? pause() : start(); }
+function resetClock(){ pause(); state.left = state.total; paintClock(); }
+
+playBtn.onclick = toggle;
+document.getElementById('btn-reset').onclick = resetClock;
+document.getElementById('t-add').onclick = () => { state.total += 30; state.left = Math.min(state.left + 30, state.total); paintClock(); };
+document.getElementById('t-sub').onclick = () => {
+  if(state.total <= 30) return;
+  state.total -= 30; state.left = Math.max(0, state.left - 30); paintClock();
+};
+document.getElementById('btn-finish').onclick = () => { pause(); go('result'); };
+
+/* 종료음 — 파일 없이 만든다 */
+let audio;
+function beep(freq, dur){
+  try{
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; o.type = 'sine';
+    o.connect(g); g.connect(audio.destination);
+    g.gain.setValueAtTime(.18, audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, audio.currentTime + dur);
+    o.start(); o.stop(audio.currentTime + dur);
+  }catch(e){ /* 소리를 못 내도 진행에는 지장 없다 */ }
+}
+
+/* ---------- 신호 언어 ---------- */
+const shout = document.getElementById('shout');
+document.querySelectorAll('#signals .sig').forEach(b => {
+  b.onclick = () => {
+    shout.textContent = b.dataset.say;
+    shout.classList.add('on');
+    clearTimeout(shout._t);
+    shout._t = setTimeout(() => shout.classList.remove('on'), 1600);
+  };
+});
+shout.onclick = () => shout.classList.remove('on');
+
+/* ============================================================
+   ④ 결과
+   ============================================================ */
+function renderResult(){
+  const list = document.getElementById('rank-list');
+  const sorted = state.teams
+    .map((t,i) => ({...t, label: teamName(t,i)}))
+    .sort((a,b) => b.cups - a.cups);
+  const max = Math.max(...sorted.map(t => t.cups), 1);
+
+  list.innerHTML = '';
+  sorted.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'rank';
+    row.style.animationDelay = (i * .07) + 's';
+    row.innerHTML = `
+      <span class="pos">${i+1}</span>
+      <span class="chip" style="background:${t.color}">${t.emoji}</span>
+      <span class="who">${t.label}</span>
+      <span class="bar"><i></i></span>
+      <span class="score">${t.cups}<small>층</small></span>
+    `;
+    list.appendChild(row);
+    requestAnimationFrame(() => { row.querySelector('.bar i').style.width = (t.cups / max * 100) + '%'; });
+  });
+}
+document.getElementById('btn-total').onclick = () => go('total');
+
+/* ============================================================
+   ⑤ 학급 합계 — 모둠 컵을 하나의 탑으로
+   ============================================================ */
+function renderTotal(){
+  const total = state.teams.reduce((s,t) => s + t.cups, 0);
+  const falls = state.teams.reduce((s,t) => s + t.falls, 0);
+
+  document.getElementById('total-num').innerHTML = `${total}<small>층</small>`;
+  document.getElementById('total-cap').innerHTML = total === 0
+    ? '아직 쌓은 컵이 없습니다.'
+    : `모둠 ${state.teams.length}개가 따로 쌓은 컵을 하나로 모았습니다.` +
+      (falls ? `<br>무너진 횟수 ${falls}번 — 그때마다 다시 세운 횟수이기도 합니다.` : '');
+
+  // 피라미드: 아래에서부터 넓게 쌓아 올린다
+  const py = document.getElementById('pyramid');
+  py.innerHTML = '';
+  let left = total, width = 1;
+  while((width + 1) * (width + 2) / 2 <= total) width++;   // 밑변 크기 정하기
+  const rows = [];
+  for(let w = width; w >= 1 && left > 0; w--){
+    const n = Math.min(w, left);
+    rows.push(n); left -= n;
+  }
+  if(left > 0) rows.push(left);
+  const size = Math.max(6, Math.min(30, 300 / rows.length));
+
+  rows.forEach((n, idx) => {   // 아래 줄부터 순서대로 등장
+    const r = document.createElement('div');
+    r.className = 'prow';
+    for(let i=0; i<n; i++){
+      const c = document.createElement('div');
+      c.className = 'cup';
+      c.style.height = size + 'px';
+      c.style.width  = (size * 1.5) + 'px';
+      c.style.animationDelay = (idx * .09 + i * .02) + 's';
+      r.appendChild(c);
+    }
+    py.prepend(r);
+  });
+}
+
+document.getElementById('btn-restart').onclick = () => {
+  pause(); resetScores(); state.left = state.total; paintClock();
+  ruleStep = 0;
+  ruleEls.forEach(el => el.classList.remove('shown'));
+  punchEl.classList.remove('shown');
+  nextRule.textContent = '다음 규칙 보기';
+  nextRule.onclick = openNextRule;
+  go('mission');
+};
+
+/* ============================================================
+   키보드 — 진행 중에는 손이 바쁘다
+   ============================================================ */
+document.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  const missionOn = document.getElementById('s-mission').classList.contains('on');
+  const playOn    = document.getElementById('s-play').classList.contains('on');
+
+  if(e.code === 'Space'){
+    e.preventDefault();
+    if(missionOn) openNextRule();
+    else if(playOn) toggle();
+  }
+  if(playOn && (e.key === 'r' || e.key === 'R')) resetClock();
+  if(e.key === 'Escape') shout.classList.remove('on');
+});
+
+/* 시작 상태 */
+buildTeams();
+paintClock();
+</script>
+</body>
+</html>
